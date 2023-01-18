@@ -1,0 +1,985 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>dc.js - HTML Legend Example</title>
+    <meta charset="UTF-8">
+    <link rel="stylesheet" type="text/css" href="bootstrap.min.css">
+    <link rel="stylesheet" type="text/css" href="dc.css" />
+</head>
+
+<body>
+    <div class="container">
+        <div class="row pb-5 pt-5">
+            <h1 id="title-header"></h1>
+            <a href="javascript:dc.filterAll(); dc.renderAll();">Reset All</a>
+        </div>
+        <div class="row">
+            <div class="col-12">
+                <div class="home"></div>
+            </div>
+        </div>
+        <h4>Timeline</h4>
+        <div class="row pb-4">
+            <div class="col-10" id="date-brush"></div>
+            <div class="col-2">
+                <select id="select1"></select>
+            </div>
+        </div>
+        <h4>Distribution (Top 5)</h4>
+        <div class="row">
+            <div class="col-3" id="confirmed">
+                <h6>Confirmed Cases</h6>
+            </div>
+            <div class="col-3" id="active-cases">
+                <h6>Active Cases</h6>
+            </div>
+            <div class="col-3" id="recovered">
+                <h6>Recovered</h6>
+            </div>
+            <div class="col-3" id="deaths">
+                <h6>Death</h6>
+            </div>
+        </div>
+        <br/>
+        <h4>Confirmed Cases (Others)</h4>
+        <div class="row"> 
+            <!-- <div class="col-4" id="searchHChart"> -->
+        </div>
+            <div class="col-12" >
+                <div class="outer">
+                    <div class="inner"> 
+                        <div id="other-hchart"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <p>&nbsp;</p>
+
+    <div class="container">
+        <div class="row">
+            <div class="table-responsive col-md-12">
+                <div class="row">
+                    <div class="col-4" id="search">
+                    </div>
+                <div class="offset-4 col-4" id="paging">
+                    Showing <span id="begin"></span>-<span id="end"></span> of <span id="size"></span>
+                    <input id="Prev" class="btn btn-secondary" role="button" type="button" value="Prev"
+                        onclick="javascript:prevPage()" />
+                    <input id="Next" class="btn btn-secondary" role="button" type="button" value="Next"
+                        onclick="javascript:nextPage()" />
+                </div>
+            </div>
+                <table class='table table-hover table-striped table-bordered' id='dc-table-graph'>
+                    <thead>
+                        <tr class='table-header'>
+                            <!-- Programmatically insert table headers here -->
+                        </tr>
+                    </thead>
+                </table>
+            </div>
+        </div>
+        <div id="vertical-whitespace" style="padding: 10px"></div>
+    </div>
+
+    <style type="text/css">
+        #paging {
+            text-align: right;
+        }
+
+        #dc-table-graph th span {
+            /*Glyphicon style*/
+            float: right;
+            font-size: 1em;
+            color: #0080bf;
+            display: inline-block;
+        }
+
+        #dc-table-graph th {
+            cursor: pointer;
+        }
+
+        .info{
+            background-color: #0080bf20;
+        }
+    </style>
+
+    <script type="text/javascript" src="d3.js"></script>
+    <script type="text/javascript" src="crossfilter.js"></script>
+    <script type="text/javascript" src="dc.js"></script>
+    <script src="papaparse.js"></script>
+    <script src="jquery.js"></script>
+    <script src="chromatic.js"></script>
+    <script src="geo-projection.js"></script>
+
+    <script type="text/javascript">
+        //Declare variable for charts and table
+        var ndx = crossfilter([]);
+        var confirmChart = new dc.PieChart("#confirmed");
+        var activeChart = new dc.PieChart("#active-cases");
+        var recoveredChart = new dc.PieChart("#recovered");
+        var deathChart = new dc.PieChart("#deaths");
+        var hChart = new dc.RowChart("#other-hchart");
+        var dateSeries = new dc.CompositeChart("#date-brush");
+        var searchWidget = new dc.TextFilterWidget("#search");
+        var searchWidgetHChart = new dc.TextFilterWidget("#searchHChart");
+
+        const TOP_LIMIT = 5;
+        var dataTable = dc.dataTable("#dc-table-graph");
+        var dataTableDim;
+        var dim = {},
+            groups = {};
+
+        //Modify Title
+        $("#title-header").text("COVID-19 Dashboard (" + getDate() + ")");
+
+        //Parse global file
+        Papa.parse(
+            "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_daily_reports/" +
+            getDate() + ".csv", {
+                download: true,
+                header: true,
+                complete: function (results) {
+                    var data1 = results.data
+
+                    //Parse US file
+                    Papa.parse(
+                        "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_daily_reports_us/" +
+                        getDate() + ".csv", {
+                            download: true,
+                            header: true,
+                            skipEmptyLines: true,
+                            complete: function (results) {
+                                //Merge data from both files
+                                var data2 = results.data
+                                data = data2.concat(data1);
+                                ndx = crossfilter(data);
+                                var all = ndx.groupAll();
+
+                                //Define dimensions
+                                var countryDim = ndx.dimension(d => d["Country_Region"]);
+                                var countryGroup = countryDim.group();
+
+                                var confirmDim = ndx.dimension(d => d["Country_Region"]);
+                                var confirmGroup = confirmDim.group().reduceSum(function (d) {
+                                    return d.Confirmed == null ? 0 : d.Confirmed;
+                                });
+                                var totalConfirmed = all.reduceSum(function (d) {
+                                    return d.Confirmed == null ? 0 : d.Confirmed;
+                                });
+
+                                var activeDim = ndx.dimension(d => d["Country_Region"]);
+                                var activeGroup = activeDim.group().reduceSum(function (d) {
+                                    return d.Active == null ? 0 : d.Active;
+                                });
+
+                                var recoveredDim = ndx.dimension(d => d["Country_Region"]);
+                                var recoveredGroup = recoveredDim.group().reduceSum(function (d) {
+                                    return d.Recovered == null ? 0 : d.Recovered;
+                                });
+
+                                var deathDim = ndx.dimension(d => d["Country_Region"]);
+                                var deathGroup = deathDim.group().reduceSum(function (d) {
+                                    return d.Deaths == null ? 0 : d.Deaths;
+                                });
+
+                                
+                                // deathChart.data(function (group) {
+                                //     return group.top(Infinity).splice(10);
+                                // });
+
+                                //Get column names
+                                var s = data[0]
+                                var keys = [];
+                                for (var k in s) keys.push(k);
+
+                                //Define charts
+                                confirmChart
+                                    .width(200)
+                                    .height(200)
+                                    .dimension(confirmDim)
+                                    .group(confirmGroup)
+                                    .title(d => `${d.key}: ${numberWithCommas(d.value)}`)
+                                    .label(d => `${d.key}\n${numberWithCommas(d.value)}`)
+                                    .turnOnControls(true)
+                                    .cap(TOP_LIMIT)
+                                    .othersGrouper(null);
+
+                                activeChart
+                                    .width(200)
+                                    .height(200)
+                                    .dimension(activeDim)
+                                    .group(activeGroup)
+                                    .title(d => `${d.key}: ${numberWithCommas(d.value)}`)
+                                    .label(d => `${d.key}\n${numberWithCommas(d.value)}`)
+                                    .turnOnControls(true)
+                                    .cap(TOP_LIMIT)
+                                    .othersGrouper(null);
+
+                                recoveredChart
+                                    .width(200)
+                                    .height(200)
+                                    .dimension(recoveredDim)
+                                    .group(recoveredGroup)
+                                    .title(d => `${d.key}: ${numberWithCommas(d.value)}`)
+                                    .label(d => `${d.key}\n${numberWithCommas(d.value)}`)
+                                    .turnOnControls(true)
+                                    .cap(TOP_LIMIT)
+                                    .othersGrouper(null);
+
+                                deathChart
+                                    .width(200)
+                                    .height(200)
+                                    .dimension(deathDim)
+                                    .group(deathGroup)
+                                    .drawPaths(true)
+                                    .title(d => `${d.key}: ${numberWithCommas(d.value)}`)
+                                    .label(d => `${d.key}\n${numberWithCommas(d.value)}`)
+                                    .turnOnControls(true)
+                                    .cap(TOP_LIMIT)
+                                    .othersGrouper(null);
+
+
+                                //Define Horizontal Bar chart
+                                var myScale = d3.scaleLog()
+                                .domain([1, 10000000])
+                                .range([0, 1000]);
+
+                                let ndx3 = crossfilter(data);
+                                var searchHChart = ndx3.dimension(function(d){
+                                    return d.Country_Region !== undefined ? d.Country_Region : "None"
+                                })
+                                searchWidgetHChart.dimension(searchHChart);
+                                var hChartDim = ndx3.dimension(d => d["Country_Region"]);
+                                var hChartGroup = hChartDim.group().reduceSum(function (d) {
+                                    return d.Confirmed == null ? 0 : d.Confirmed;
+                                });
+
+                                hChart
+                                    .height(hChartGroup.size() * 40)
+                                    .dimension(hChartDim)
+                                    .title(d => `${d.key}: ${numberWithCommas(d.value)}`)
+                                    .label(d => `${d.key}\n${numberWithCommas(d.value)}`)
+                                    .x(myScale)
+                                    .turnOnControls(false)
+                                    .group(hChartGroup);
+
+                                hChart.xAxis().ticks(false);
+                                
+                                let topCountries = confirmChart.group().top(TOP_LIMIT).map((d)=>{return d.key});
+                                hChart.data((group)=>{
+                                    const filter = (d)=>{
+                                        return !topCountries.includes(d.key);
+                                    }
+                                    return group.top(Infinity).filter(filter)
+                                })
+
+                                // Programmatically insert header labels for table
+                                var tableHeader = d3.select(".table-header")
+                                    .selectAll("th");
+
+                                // Bind data to tableHeader selection.
+                                tableHeader = tableHeader.data(
+                                    [{
+                                            label: "Country_Region",
+                                            field_name: "Country_Region",
+                                            sort_state: "ascending"
+                                        },
+                                        {
+                                            label: "Confirmed",
+                                            field_name: "Confirmed",
+                                            sort_state: "ascending"
+                                        },
+                                        {
+                                            label: "Deaths",
+                                            field_name: "Deaths",
+                                            sort_state: "ascending"
+                                        },
+                                        {
+                                            label: "Recovered",
+                                            field_name: "Recovered",
+                                            sort_state: "descending"
+                                        },
+                                        {
+                                            label: "Active",
+                                            field_name: "Active",
+                                            sort_state: "descending"
+                                        }
+                                    ]
+                                );
+
+                                // enter() into virtual selection and create new <th> header elements for each table column
+                                tableHeader = tableHeader.enter()
+                                    .append("th")
+                                    .text(function (d) {
+                                        return d.label;
+                                    }) // Accessor function for header titles
+                                    .on("click", tableHeaderCallback);
+
+                                function tableHeaderCallback(d) {
+                                    // Highlight column header being sorted and show bootstrap glyphicon
+                                    var activeClass = "info";
+
+                                    d3.selectAll(
+                                            "#dc-table-graph th") // Disable all highlighting and icons
+                                        .classed(activeClass, false)
+                                        .selectAll("span")
+                                        .style("visibility", "hidden") // Hide glyphicon
+
+                                    var activeSpan = d3.select(
+                                            this
+                                        ) // Enable active highlight and icon for active column for sorting
+                                        .classed(activeClass,
+                                            true
+                                        ) // Set bootstrap "info" class on active header for highlight
+                                        .select("span")
+                                        .style("visibility", "visible");
+
+                                    // Toggle sort order state to user desired state
+                                    d.sort_state = d.sort_state === "ascending" ? "descending" :
+                                        "ascending";
+
+                                    var isAscendingOrder = d.sort_state === "ascending";
+                                    dataTable
+                                        .order(isAscendingOrder ? d3.ascending : d3.descending)
+                                        .sortBy(function (datum) {
+                                            return parseInt(datum.value[d.field_name]) ?? 0;
+                                        });
+
+                                    // Reset glyph icon for all other headers and update this headers icon
+                                    activeSpan.node().className = ''; // Remove all glyphicon classes
+
+                                    // Toggle glyphicon based on ascending/descending sort_state
+                                    activeSpan.classed(
+                                        isAscendingOrder ?
+                                        "glyphicon glyphicon-sort-by-attributes" :
+                                        "glyphicon glyphicon-sort-by-attributes-alt", true);
+
+                                    updateTable();
+                                    dataTable.redraw();
+                                }
+                                // Initialize sort state and sort icon on one of the header columns
+                                // Highlight "Max Conf" cell on page load
+                                // This can be done programmatically for user specified column
+                                tableHeader.filter(function (d) {
+                                        return d.label === "Country_Region";
+                                    })
+                                    .classed("info", true);
+
+                                var tableSpans = tableHeader
+                                    .append("span") // For Sort glyphicon on active table headers
+                                    .classed("glyphicon glyphicon-sort-by-attributes-alt", true)
+                                    .style("visibility", "hidden")
+                                    .filter(function (d) {
+                                        return d.label === "Country_Region";
+                                    })
+                                    .style("visibility", "visible");
+
+                                // ##############################
+                                // Generate the dc.js dataTable
+                                // ##############################
+                                // Create generating functions for each columns
+                                var columnFunctions = [
+                                    function (d) {
+                                        return d.key;
+                                    },
+                                    function (d) {
+                                        return numberWithCommas(d.value.Confirmed);
+                                    },
+                                    function (d) {
+                                        return numberWithCommas(d.value.Deaths);
+                                    },
+                                    function (d) {
+                                        return numberWithCommas(d.value.Recovered);
+                                    },
+                                    function (d) {
+                                        return numberWithCommas(d.value.Active);
+                                    },
+                                ];
+
+
+                                // Setup different dimensions for plots
+                                ndx2 = crossfilter(data);
+                                var searchDim = ndx2.dimension(function(d){
+                                    return d.Country_Region !== undefined ? d.Country_Region : "None"
+                                })
+                                searchWidget.dimension(searchDim);
+
+                                datatTableDim = ndx2.dimension(function (d) {
+                                    return d.Country_Region;
+                                });
+                                dataTableGroup = datatTableDim.group().reduce(
+                                    function (p, v) {
+                                        if (!isNaN(v.Confirmed) && !isNaN(parseInt(v.Confirmed)))
+                                            p.Confirmed += (parseInt(v.Confirmed) ?? 0);
+                                            if (!isNaN(v.Deaths) && !isNaN(parseInt(v.Deaths)))
+                                            p.Deaths += (parseInt(v.Deaths) ?? 0);
+                                            if (!isNaN(v.Recovered) && !isNaN(parseInt(v.Recovered)))
+                                            p.Recovered += (parseInt(v.Recovered) ?? 0);
+                                            if (!isNaN(v.Active) && !isNaN(parseInt(v.Active)))
+                                            p.Active += (parseInt(v.Active) ?? 0);
+                                        return p;
+                                    },
+                                    function (p, v) {
+                                        if (!isNaN(v.Confirmed) && !isNaN(parseInt(v.Confirmed)))
+                                            p.Confirmed -= (parseInt(v.Confirmed) ?? 0);
+                                            if (!isNaN(v.Deaths) && !isNaN(parseInt(v.Deaths)))
+                                            p.Deaths -= (parseInt(v.Deaths) ?? 0);
+                                            if (!isNaN(v.Recovered) && !isNaN(parseInt(v.Recovered)))
+                                            p.Recovered -= (parseInt(v.Recovered) ?? 0);
+                                            if (!isNaN(v.Active) && !isNaN(parseInt(v.Active)))
+                                            p.Active -= (parseInt(v.Active) ?? 0);
+                                        return p;
+                                    },
+                                    function () {
+                                        return {
+                                            Confirmed: 0,
+                                            Deaths: 0,
+                                            Recovered: 0,
+                                            Active: 0
+                                        }
+                                    });
+
+                                dataTable.width(960).height(800)
+                                    .dimension(reversible_group(dataTableGroup))
+                                    .size(Infinity)
+                                    .columns(columnFunctions)
+                                    .showSections(false);
+
+                                updateTable();
+                                dataTable.redraw();
+
+                                // The Map SVG
+                                const width=800,height=300;
+                                const container = d3.select(".home");
+                                const svg = container.append("svg");
+                                
+                                svg.attr("width", width)
+                                .attr("height", height)
+                                .append('g');
+
+
+                                // Map and projection
+                                var path = d3.geoPath();
+                                var projection = d3.geoEquirectangular()
+                                    .scale(100)
+                                    .center([0, 0])
+                                    .translate([width / 2, height / 2]);
+
+                                // Data and color scale
+                                var colorScale = d3.scaleThreshold()
+                                    .domain([100, 1000, 1000, 100000, 1000000, 10000000])
+                                    .range(d3.schemeBlues[7]);
+
+                                // Load external data and boot
+                                d3.queue()
+                                    .defer(d3.json, "world.json")
+                                    .await(ready);
+
+                                var confirmMapData = d3.map();
+                                var confirmReduced = confirmGroup.top(Infinity);
+                                confirmReduced.forEach(function (d) {
+                                    confirmMapData.set(d.key, d.value);
+                                });
+
+                                var deathsMapData = d3.map();
+                                var deathsReduced = deathGroup.top(Infinity);
+                                deathsReduced.forEach(function (d) {
+                                    deathsMapData.set(d.key, d.value);
+                                });
+
+                                var recoveredMapData = d3.map();
+                                var recoveredReduced = recoveredGroup.top(Infinity);
+                                recoveredReduced.forEach(function (d) {
+                                    recoveredMapData.set(d.key, d.value);
+                                });
+
+                                var activeMapData = d3.map();
+                                var activeReduced = activeGroup.top(Infinity);
+                                activeReduced.forEach(function (d) {
+                                    activeMapData.set(d.key, d.value);
+                                });
+
+                                function ready(error, topo) {
+                                    let mouseOver = function (d) {
+                                        d3.selectAll(".Country")
+                                            .transition()
+                                            .duration(200)
+                                            .style("opacity", .5)
+                                        d3.select(this)
+                                            .transition()
+                                            .duration(200)
+                                            .style("opacity", 1)
+                                    }
+
+                                    let mouseLeave = function (d) {
+                                        d3.selectAll(".Country")
+                                            .transition()
+                                            .duration(200)
+                                            .style("opacity", .8)
+                                        d3.select(this)
+                                            .transition()
+                                            .duration(200)
+                                    }
+
+                                    let zoom = d3.zoom()
+                                    .scaleExtent([1, 5])
+                                    .translateExtent([[-500, -300], [1500, 1000]])
+                                    .on('zoom', () => {
+                                        svg.attr('transform', d3.event.transform)
+                                    });
+
+                                    container.call(zoom);
+                                    // Draw the map
+                                    svg.append("g")
+                                        .selectAll("path")
+                                        .data(topo.features)
+                                        .enter()
+                                        .append("path")
+                                        // draw each country
+                                        .attr("d", d3.geoPath()
+                                            .projection(projection)
+                                        )
+                                        // set the color of each country
+                                        .attr("fill", function (d) {
+                                            d.confirmed = confirmMapData.get(d.properties.name) ||
+                                                0;
+                                            d.deaths = deathsMapData.get(d.properties.name) || 0;
+                                            d.recovered = recoveredMapData.get(d.properties.name) ||
+                                                0;
+                                            d.active = activeMapData.get(d.properties.name) || 0;
+                                            return colorScale(d.confirmed);
+                                        })
+                                        .style("stroke", "transparent")
+                                        .attr("class", function (d) {
+                                            return "Country"
+                                        })
+                                        .style("opacity", .8)
+                                        .on("mouseover", mouseOver)
+                                        .on("mouseleave", mouseLeave)
+                                        .append("title")
+                                        .text(d => `${d.properties.name}` +
+                                            `\nConfirmed: ${numberWithCommas(d.confirmed)}` +
+                                            `\nDeaths: ${numberWithCommas(d.deaths)}` +
+                                            `\nRecovered: ${numberWithCommas(d.recovered)}` +
+                                            `\nActive: ${numberWithCommas(d.active)}`
+                                        );
+
+                                        svg.attr("transform", "translate(150,0)");
+                                }
+
+
+                                var files = [
+                                    "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_global.csv",
+                                    "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_global.csv",
+                                    "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_recovered_global.csv"
+                                ];
+                                var allResults = [];
+
+                                for (var i = 0; i < files.length; i++) {
+                                    Papa.parse(files[i], {
+                                        download: true,
+                                        error: function (err, file, inputElem, reason) {
+                                            /* handle*/
+                                        },
+                                        complete: function (results) {
+                                            allResults.push(results);
+                                            if (allResults.length == files.length) {
+                                                //Create Confirm Series, Dimension and Group
+                                                var confirmSeries = transpose(allResults[2]
+                                                    .data);
+                                                confirmSeries = deleteRow(confirmSeries, 0);
+                                                confirmSeries = deleteRow(confirmSeries, 2);
+                                                confirmSeries = deleteRow(confirmSeries, 1);
+                                                var keys = confirmSeries.shift();
+                                                var confirmSeries = confirmSeries.map(
+                                                    function (
+                                                        values) {
+                                                        return keys.reduce(function (o,
+                                                            k, i) {
+                                                            if (k ==
+                                                                "Country/Region"
+                                                            ) {
+                                                                k = "Date";
+                                                            }
+                                                            o[k] = values[i];
+                                                            return o;
+                                                        }, {});
+                                                    });
+                                                var confirmFilter = crossfilter(
+                                                    confirmSeries);
+                                                var confirmDateDim = confirmFilter
+                                                    .dimension(d =>
+                                                        Date.parse(
+                                                            d["Date"]));
+
+                                                var confirmSeriesGroup =
+                                                    createTimeSeriesGroup(
+                                                        confirmDateDim,
+                                                        "Afghanistan");
+
+                                                //Create Death Series, Dimension and Group
+                                                var deathSeries = transpose(allResults[0]
+                                                    .data);
+                                                deathSeries = deleteRow(deathSeries, 0);
+                                                deathSeries = deleteRow(deathSeries, 2);
+                                                deathSeries = deleteRow(deathSeries, 1);
+                                                var keys = deathSeries.shift();
+
+                                                var deathSeries = deathSeries.map(
+                                                    function (
+                                                        values) {
+                                                        return keys.reduce(function (o,
+                                                            k, i) {
+                                                            if (k ==
+                                                                "Country/Region"
+                                                            ) {
+                                                                k = "Date";
+                                                            }
+                                                            o[k] = values[i];
+                                                            return o;
+                                                        }, {});
+                                                    });
+                                                var deathFilter = crossfilter(
+                                                    deathSeries);
+                                                var deathDateDim = deathFilter
+                                                    .dimension(d =>
+                                                        Date.parse(
+                                                            d["Date"]));
+
+                                                var deathSeriesGroup =
+                                                    createTimeSeriesGroup(
+                                                        deathDateDim,
+                                                        "Afghanistan");
+
+                                                //Create Recovered Series, Dimension and Group
+                                                var recoveredSeries = transpose(allResults[
+                                                    1].data);
+                                                recoveredSeries = deleteRow(recoveredSeries,
+                                                    0);
+                                                recoveredSeries = deleteRow(recoveredSeries,
+                                                    2);
+                                                recoveredSeries = deleteRow(recoveredSeries,
+                                                    1);
+                                                var keys = recoveredSeries.shift();
+                                                var recoveredSeries = recoveredSeries.map(
+                                                    function (
+                                                        values) {
+                                                        return keys.reduce(function (o,
+                                                            k, i) {
+                                                            if (k ==
+                                                                "Country/Region"
+                                                            ) {
+                                                                k = "Date";
+                                                            }
+                                                            o[k] = values[i];
+                                                            return o;
+                                                        }, {});
+                                                    });
+                                                var recoveredFilter = crossfilter(
+                                                    recoveredSeries);
+                                                var recoveredDateDim = recoveredFilter
+                                                    .dimension(d =>
+                                                        Date.parse(
+                                                            d["Date"]));
+
+                                                var recoveredSeriesGroup =
+                                                    createTimeSeriesGroup(
+                                                        recoveredDateDim,
+                                                        "Afghanistan");
+
+                                                let countries = keys.filter(onlyUnique);
+                                                countries.shift();
+                                                d3.select("#select1")
+                                                    .selectAll('myOptions')
+                                                    .data(countries)
+                                                    .enter()
+                                                    .append('option')
+                                                    .text(function (d) {
+                                                        return d;
+                                                    }) // text showed in the menu
+                                                    .attr("value", function (d) {
+                                                        return d;
+                                                    })
+
+                                                function createSeries() {
+                                                    dateSeries
+                                                        .width(990)
+                                                        .height(200)
+                                                        .transitionDuration(1000)
+                                                        .margins({
+                                                            top: 30,
+                                                            right: 50,
+                                                            bottom: 25,
+                                                            left: 80
+                                                        })
+                                                        .title(function (d) {
+                                                            return numberWithCommas(d[
+                                                                    "value"]) +
+                                                                "\n" +
+                                                                new Date(d.key)
+                                                        })
+                                                        .compose([
+                                                            new dc.LineChart(dateSeries)
+                                                            .colors('lightBlue')
+                                                            .dimension(confirmDateDim)
+                                                            .group(confirmSeriesGroup,
+                                                                "Confirmed"),
+                                                            new dc.LineChart(dateSeries)
+                                                            .colors('lightGreen')
+                                                            .dimension(recoveredDateDim)
+                                                            .group(recoveredSeriesGroup,
+                                                                "Recovered"),
+                                                            new dc.LineChart(dateSeries)
+                                                            .colors('red')
+                                                            .dimension(deathDateDim)
+                                                            .group(deathSeriesGroup,
+                                                                "Deaths"),
+                                                        ])
+                                                        .legend(new dc.Legend().x(800).y(10)
+                                                            .itemHeight(13).gap(5))
+                                                        .mouseZoomable(true)
+                                                        .x(d3.scaleTime().domain([new Date(
+                                                            2019, 10,
+                                                            1), new Date()]))
+                                                        .round(d3.timeDay.round)
+                                                        .xUnits(d3.timeDay)
+                                                        .elasticY(true)
+                                                        .brushOn(false)
+                                                        .renderHorizontalGridLines(true);
+
+                                                }
+
+                                                createSeries();
+                                                // When the button is changed, run the updateChart function
+                                                d3.select("#select1").on("change",
+                                                    function (
+                                                        d) {
+                                                        // recover the option that has been chosen
+                                                        var selectedOption = d3.select(
+                                                                this)
+                                                            .property("value")
+                                                        confirmSeriesGroup =
+                                                            createTimeSeriesGroup(
+                                                                confirmDateDim,
+                                                                selectedOption
+                                                            );
+                                                        recoveredSeriesGroup =
+                                                            createTimeSeriesGroup(
+                                                                recoveredDateDim,
+                                                                selectedOption
+                                                            );
+                                                        deathSeriesGroup =
+                                                            createTimeSeriesGroup(
+                                                                deathDateDim,
+                                                                selectedOption
+                                                            );
+                                                        createSeries();
+                                                        dateSeries.render();
+                                                    })
+
+                                                dc.renderAll();
+
+                                            }
+                                        }
+                                    });
+                                }
+                            }
+                        });
+                }
+            });
+
+        // Data Table Pagination
+        var tableOffset = 0,
+            tablePageSize = 10;
+
+        // updateTable calculates correct start and end indices for current page view
+        // it slices and pulls appropriate date for current page from dataTable object
+        // Finally, it updates the pagination button states depending on if more records
+        // are available
+        function updateTable() {
+            // Ensure Prev/Next bounds are correct, especially after filters applied to dc charts
+            var totFilteredRecs = ndx2.groupAll().value();
+            // Adjust values of start and end record numbers for edge cases
+            var end = tableOffset + tablePageSize > totFilteredRecs ? totFilteredRecs : tableOffset + tablePageSize;
+            tableOffset = tableOffset >= totFilteredRecs ? Math.floor((totFilteredRecs - 1) / tablePageSize) *
+                tablePageSize : tableOffset;
+            tableOffset = tableOffset < 0 ? 0 : tableOffset; // In case of zero entries
+
+            // Grab data for current page from the dataTable object
+            dataTable.beginSlice(tableOffset);
+            dataTable.endSlice(tableOffset + tablePageSize);
+
+            // Update Table paging buttons and footer text
+            d3.select('span#begin')
+                .text(end === 0 ? tableOffset : tableOffset + 1); // Correct for "Showing 1 of 0" bug
+            d3.select('span#end')
+                .text(end);
+            d3.select('#Prev.btn')
+                .attr('disabled', tableOffset - tablePageSize < 0 ? 'true' : null);
+            d3.select('#Next.btn')
+                .attr('disabled', tableOffset + tablePageSize >= totFilteredRecs ? 'true' : null);
+            d3.select('span#size').text(totFilteredRecs);
+
+            dataTable.redraw();
+        }
+        // Callback function for clicking "Next" page button
+        function nextPage() {
+            tableOffset += tablePageSize;
+            updateTable();
+        }
+        // Callback function for clicking "Prev" page button
+        function prevPage() {
+            tableOffset -= tablePageSize;
+            updateTable();
+        }
+
+        function reversible_group(group) {
+            function non_zero_pred(d) {
+                return Math.abs(d.value.Confirmed) > 0.0001;
+            }
+
+
+            return {
+                top: function (N) {
+                    return group.top(N).filter(non_zero_pred);
+                },
+                bottom: function (N) {
+                    return group.top(Infinity).filter(non_zero_pred).slice(-N).reverse();
+                }
+            };
+        }
+        
+
+        function getDate(offset = 0) {
+            const today = new Date()
+            const yesterday = new Date(today)
+            yesterday.setDate(yesterday.getDate() - 1 - offset)
+
+            var dd = String(yesterday.getDate()).padStart(2, '0');
+            var mm = String(yesterday.getMonth() + 1).padStart(2, '0'); //January is 0!
+            var yyyy = yesterday.getFullYear();
+            
+            let date = mm + '-' + dd + '-' + yyyy;
+            if(!UrlExists("https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_daily_reports/" +
+            date + ".csv")){
+                date  =  getDate(1);
+            }
+            console.log(date);
+
+            return date;
+            //return "01-01-2021"
+        }
+
+        function UrlExists(url)
+        {
+            var http = new XMLHttpRequest();
+            http.open('HEAD', url, false);
+            http.send();
+            return http.status!=404;
+        }
+
+        function sum(obj) {
+            var sum = 0;
+            for (var el in obj) {
+                if (obj.hasOwnProperty(el)) {
+                    sum += parseFloat(obj[el]);
+                }
+            }
+            return sum;
+        }
+
+        function createTimeSeriesGroup(dim, key) {
+            var timeSeriesGroup = dim.group().reduceSum(function (d) {
+                return d[key] == null ? 0 : d[key];
+            });
+            timeSeriesGroup.dispose();
+
+            return timeSeriesGroup;
+        }
+
+        function numberWithCommas(x) {
+            return x.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+        }
+
+        function deleteRow(arr, row) {
+            arr = arr.slice(0); // make copy
+            arr.splice(row, 1);
+            return arr;
+        }
+
+        // A function that update the chart
+        function update(selectedGroup) {
+
+            // Create new data with the selection?
+            var dataFilter = data.map(function (d) {
+                return {
+                    time: d.time,
+                    value: d[selectedGroup]
+                }
+            })
+
+            // Give these new data to update line
+            line
+                .datum(dataFilter)
+                .transition()
+                .duration(1000)
+                .attr("d", d3.line()
+                    .x(function (d) {
+                        return x(+d.time)
+                    })
+                    .y(function (d) {
+                        return y(+d.value)
+                    })
+                )
+                .attr("stroke", function (d) {
+                    return myColor(selectedGroup)
+                })
+        }
+
+        function onlyUnique(value, index, self) {
+            return self.indexOf(value) === index;
+        }
+
+        function transpose(a) {
+
+            // Calculate the width and height of the Array
+            var w = a.length || 0;
+            var h = a[0] instanceof Array ? a[0].length : 0;
+
+            // In case it is a zero matrix, no transpose routine needed.
+            if (h === 0 || w === 0) {
+                return [];
+            }
+
+            /**
+             * @var {Number} i Counter
+             * @var {Number} j Counter
+             * @var {Array} t Transposed data is stored in this array.
+             */
+            var i, j, t = [];
+
+            // Loop through every item in the outer array (height)
+            for (i = 0; i < h; i++) {
+
+                // Insert a new row (array)
+                t[i] = [];
+
+                // Loop through every item per item in outer array (width)
+                for (j = 0; j < w; j++) {
+
+                    // Save transposed data.
+                    t[i][j] = a[j][i];
+                }
+            }
+
+            return t;
+        }
+    </script>
+    </div>
+</body>
+
+</html>
